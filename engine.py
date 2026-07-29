@@ -304,6 +304,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
             'exit_reason': t['exit_reason'],
             'quantity': quantity,
             'r_multiple': t['r_multiple'],
+            'gross_pnl': gross_pnl,
+            'cost': cost,
             'pnl': net_pnl,
             'equity_after': running_equity,
         })
@@ -317,4 +319,4 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     equity_df = pd.concat([start_row, equity_df], ignore_index=True)
 
     return final_trades_df, equity_df, funnel
-                            
+                        
