@@ -68,6 +68,13 @@ def _generate_r_multiple_trades(df, risk_per_trade_pct=0.01, min_atr_pct_of_pric
         df['symbol'] = 'UNKNOWN'
 
     all_trades = []
+    funnel = {
+        'candles_in_entry_window': 0,
+        'skipped_nan_or_invalid': 0,
+        'skipped_atr_floor': 0,
+        'skipped_no_direction_match': 0,
+        'signals_generated': 0,
+    }
 
     for symbol, sym_df in df.groupby('symbol'):
         sym_df = sym_df.sort_values('datetime').reset_index(drop=True)
@@ -187,6 +194,7 @@ def _generate_r_multiple_trades(df, risk_per_trade_pct=0.01, min_atr_pct_of_pric
                 # Window trimmed to 56 (not 57) so the NEXT candle's fill still lands by 2:00 PM.
                 if active_position is None and pending_signal is None and consecutive_losses < 2:
                     if 9 <= candle_idx <= 56:
+                        funnel['candles_in_entry_window'] += 1
                         atr = row.atr_14
                         adx = row.adx_14
                         vol_sma = row.vol_sma_20
@@ -195,34 +203,38 @@ def _generate_r_multiple_trades(df, risk_per_trade_pct=0.01, min_atr_pct_of_pric
                         close = row.close
 
                         if pd.isna(atr) or pd.isna(adx) or pd.isna(ema20) or pd.isna(vwap) or close <= 0:
+                            funnel['skipped_nan_or_invalid'] += 1
                             continue
 
                         # BUG FIX: floor out unreliable/near-zero ATR readings instead of only
                         # skipping when it's exactly zero. Prevents absurd position sizing later.
                         if atr < (min_atr_pct_of_price * close):
+                            funnel['skipped_atr_floor'] += 1
                             continue
 
                         sl_dist = 1.3 * atr
                         if sl_dist <= 0:
+                            funnel['skipped_atr_floor'] += 1
                             continue
 
-                        # Opening-range width sanity band (part of the original V-ORB 2.0 spec,
-                        # was missing from this implementation): skip abnormally narrow or wide ranges.
-                        if not (0.5 * atr <= or_width <= 2.5 * atr):
-                            continue
-
-                        regime_pass = (adx >= 18.0)
-                        if not regime_pass:
-                            continue
+                        # V2.1: the OR-width band and ADX regime filters are REMOVED here.
+                        # They were never empirically validated on the 11-year dataset before
+                        # being added, and adding them dropped trade count by ~90% and flipped
+                        # expectancy negative. Re-add and test them ONE AT A TIME on real data
+                        # if you want to explore them again -- don't stack untested filters.
 
                         vol_condition = (row.volume > 1.5 * vol_sma) if has_volume else True
 
                         if (close > or_high) and (close > vwap) and vol_condition and (close > ema20):
                             pending_signal = {'type': 'LONG', 'sl_dist': sl_dist}
+                            funnel['signals_generated'] += 1
                         elif (close < or_low) and (close < vwap) and vol_condition and (close < ema20):
                             pending_signal = {'type': 'SHORT', 'sl_dist': sl_dist}
+                            funnel['signals_generated'] += 1
+                        else:
+                            funnel['skipped_no_direction_match'] += 1
 
-    return pd.DataFrame(all_trades)
+    return pd.DataFrame(all_trades), funnel
 
 
 def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_pct=0.01,
@@ -236,10 +248,10 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
       per-trade notional cap (fixes the unbounded-size bug), and deducting a simple
       brokerage/slippage cost per executed leg (fixes the zero-cost bug).
     """
-    r_trades = _generate_r_multiple_trades(df, risk_per_trade_pct=risk_per_trade_pct)
+    r_trades, funnel = _generate_r_multiple_trades(df, risk_per_trade_pct=risk_per_trade_pct)
 
     if r_trades.empty:
-        return r_trades, pd.DataFrame()
+        return r_trades, pd.DataFrame(), funnel
 
     # Portfolio concurrency filter: at most `max_active_trades` open at once, chronologically.
     r_trades = r_trades.sort_values('entry_time').reset_index(drop=True)
@@ -252,7 +264,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
             active_exits.append(trade['exit_time'])
 
     if not approved:
-        return pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), funnel
 
     approved_df = pd.DataFrame(approved).sort_values('entry_time').reset_index(drop=True)
 
@@ -304,4 +316,5 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     start_row = pd.DataFrame([{'datetime': df['datetime'].min(), 'equity': initial_capital}])
     equity_df = pd.concat([start_row, equity_df], ignore_index=True)
 
-    return final_trades_df, equity_df
+    return final_trades_df, equity_df, funnel
+                            
