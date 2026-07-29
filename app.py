@@ -69,11 +69,23 @@ else:
          st.error("The uploaded CSV must contain a time column (e.g., 'datetime', 'date', 'timestamp').")
     else:
         st.success("Data successfully loaded. Running backtest...")
+
+        # --- DIAGNOSTIC VIEWER ---
+        st.warning("Data Diagnostic Viewer Active:")
+        st.write(f"Total Rows in Dataset: {len(df_raw)}")
+        st.write("First 5 Rows of Data:")
+        st.dataframe(df_raw.head())
+        
+        df_raw['debug_date'] = pd.to_datetime(df_raw['datetime']).dt.date
+        rows_per_day = df_raw.groupby('debug_date').size()
+        st.write("Candles per day (Must be > 15 for the engine to trade):")
+        st.dataframe(rows_per_day.head(10))
+        # -------------------------
         
         trades_df, equity_df = run_backtest(df_raw)
 
         if trades_df.empty:
-            st.warning("No trades generated with the current dataset filters. Ensure your CSV has intraday granularity.")
+            st.error("No trades generated with the current dataset filters. Ensure your CSV has intraday granularity.")
         else:
             net_profit = trades_df['pnl'].sum()
             total_trades = len(trades_df)
