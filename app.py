@@ -39,15 +39,21 @@ def process_uploaded_data(uploaded):
                 if filename.endswith('.csv') and not filename.startswith('__MACOSX/'):
                     with z.open(filename) as f:
                         df = pd.read_csv(f)
+                        df.columns = df.columns.str.strip().str.lower()
+                        # CRITICAL FIX: Assign filename as symbol if missing
+                        if 'symbol' not in df.columns:
+                            df['symbol'] = filename.replace('.csv', '')
                         dfs.append(df)
     elif uploaded.name.endswith('.csv'):
         df = pd.read_csv(uploaded)
+        df.columns = df.columns.str.strip().str.lower()
+        if 'symbol' not in df.columns:
+            df['symbol'] = uploaded.name.replace('.csv', '')
         dfs.append(df)
         
     if dfs:
         df_combined = pd.concat(dfs, ignore_index=True)
         
-        df_combined.columns = df_combined.columns.str.strip().str.lower()
         df_combined.rename(columns={
             'date': 'datetime', 
             'time': 'datetime', 
@@ -69,18 +75,6 @@ else:
          st.error("The uploaded CSV must contain a time column (e.g., 'datetime', 'date', 'timestamp').")
     else:
         st.success("Data successfully loaded. Running backtest...")
-
-        # --- DIAGNOSTIC VIEWER ---
-        st.warning("Data Diagnostic Viewer Active:")
-        st.write(f"Total Rows in Dataset: {len(df_raw)}")
-        st.write("First 5 Rows of Data:")
-        st.dataframe(df_raw.head())
-        
-        df_raw['debug_date'] = pd.to_datetime(df_raw['datetime']).dt.date
-        rows_per_day = df_raw.groupby('debug_date').size()
-        st.write("Candles per day (Must be > 15 for the engine to trade):")
-        st.dataframe(rows_per_day.head(10))
-        # -------------------------
         
         trades_df, equity_df = run_backtest(df_raw)
 
@@ -168,4 +162,3 @@ else:
                                  color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
                 fig_day.update_layout(template="plotly_dark", height=350, showlegend=False)
                 st.plotly_chart(fig_day, use_container_width=True)
-                
