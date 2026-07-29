@@ -24,29 +24,55 @@ st.markdown("""
 
 st.title("⚡ V-ORB Strategy: Advanced X-Ray Dashboard")
 
-# Zip File Uploader
-uploaded_zip = st.file_uploader("Upload Historical Data (.zip containing CSVs)", type=["zip"])
+# Unified File Uploader for ZIP or CSV
+uploaded_file = st.file_uploader(
+    "Upload Historical Data (Single .csv OR .zip containing CSVs)", 
+    type=["zip", "csv"]
+)
 
 @st.cache_data
-def process_uploaded_zip(uploaded_file):
+def process_uploaded_data(uploaded):
+    """Handles both single CSV uploads and ZIP archives containing CSVs."""
     dfs = []
-    with zipfile.ZipFile(uploaded_file) as z:
-        for filename in z.namelist():
-            if filename.endswith('.csv'):
-                with z.open(filename) as f:
-                    df = pd.read_csv(f)
-                    dfs.append(df)
+    
+    # Check if the uploaded file is a ZIP archive
+    if uploaded.name.endswith('.zip'):
+        with zipfile.ZipFile(uploaded) as z:
+            for filename in z.namelist():
+                if filename.endswith('.csv'):
+                    with z.open(filename) as f:
+                        df = pd.read_csv(f)
+                        dfs.append(df)
+    # Check if the uploaded file is a direct CSV
+    elif uploaded.name.endswith('.csv'):
+        df = pd.read_csv(uploaded)
+        dfs.append(df)
+        
     if dfs:
-        return pd.concat(dfs, ignore_index=True)
+        df_combined = pd.concat(dfs, ignore_index=True)
+        
+        # Standardize columns to prevent KeyErrors
+        df_combined.columns = df_combined.columns.str.strip().str.lower()
+        df_combined.rename(columns={
+            'date': 'datetime', 
+            'time': 'datetime', 
+            'timestamp': 'datetime',
+            'date/time': 'datetime'
+        }, inplace=True)
+        
+        return df_combined
     return pd.DataFrame()
 
-if uploaded_zip is None:
-    st.info("Please upload a .zip file containing your 5-minute historical CSV data to view results.")
+if uploaded_file is None:
+    st.info("Please upload a .csv or .zip file to view results.")
 else:
-    df_raw = process_uploaded_zip(uploaded_zip)
+    # Process the data
+    df_raw = process_uploaded_data(uploaded_file)
     
     if df_raw.empty:
-        st.error("No valid CSV files found in the uploaded .zip archive.")
+        st.error("No valid CSV data found in the uploaded file.")
+    elif 'datetime' not in df_raw.columns:
+         st.error("The uploaded CSV must contain a time column (e.g., 'datetime', 'date', 'timestamp').")
     else:
         st.success("Data successfully loaded. Running backtest...")
         
