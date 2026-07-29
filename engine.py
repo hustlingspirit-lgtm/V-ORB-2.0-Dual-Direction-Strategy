@@ -42,6 +42,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
         
     all_trades = []
     
+    # 1. Generate all theoretical trades across all stocks independently
     for symbol, sym_df in df.groupby('symbol'):
         sym_df = sym_df.sort_values('datetime').reset_index(drop=True)
         sym_df = calculate_indicators(sym_df)
@@ -135,7 +136,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
                         if pd.isna(atr) or pd.isna(adx) or pd.isna(ema20) or pd.isna(vwap):
                             continue
 
-                        # Modified to bypass the mathematically flawed OR-width filter
                         regime_pass = (adx >= 18.0)
 
                         if regime_pass:
@@ -145,7 +145,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
                                 
                             risk_amt = initial_capital * risk_per_trade_pct
                             position_size = max(1, int(risk_amt / sl_dist))
-                            
                             vol_condition = (row.volume > 1.5 * vol_sma) if has_volume else True
 
                             if (row.close > or_high) and (row.close > vwap) and vol_condition and (row.close > ema20):
@@ -184,12 +183,33 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     if trades_df.empty:
         return trades_df, pd.DataFrame()
         
-    trades_df = trades_df.sort_values('exit_time').reset_index(drop=True)
-    trades_df['equity'] = initial_capital + trades_df['pnl'].cumsum()
+    # 2. PORTFOLIO RISK MANAGER: Enforce max active trades chronologically
+    trades_df = trades_df.sort_values('entry_time').reset_index(drop=True)
+    approved_trades = []
+    active_exits = []
+    max_active_trades = 3  # Hard limit to prevent account blowout
     
-    equity_df = trades_df[['exit_time', 'equity']].rename(columns={'exit_time': 'datetime'})
+    for idx, trade in trades_df.iterrows():
+        # Clear out any trades that closed before this new trade's entry time
+        active_exits = [exit_time for exit_time in active_exits if exit_time > trade['entry_time']]
+        
+        # Only accept the trade if the portfolio has room
+        if len(active_exits) < max_active_trades:
+            approved_trades.append(trade)
+            active_exits.append(trade['exit_time'])
+            
+    final_trades_df = pd.DataFrame(approved_trades)
+    
+    if final_trades_df.empty:
+        return final_trades_df, pd.DataFrame()
+
+    # 3. Calculate realistic equity curve
+    final_trades_df = final_trades_df.sort_values('exit_time').reset_index(drop=True)
+    final_trades_df['equity'] = initial_capital + final_trades_df['pnl'].cumsum()
+    
+    equity_df = final_trades_df[['exit_time', 'equity']].rename(columns={'exit_time': 'datetime'})
     start_row = pd.DataFrame([{'datetime': df['datetime'].min(), 'equity': initial_capital}])
     equity_df = pd.concat([start_row, equity_df], ignore_index=True)
 
-    return trades_df, equity_df
-            
+    return final_trades_df, equity_df
+                                        
