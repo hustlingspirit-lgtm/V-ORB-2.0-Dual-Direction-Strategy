@@ -42,7 +42,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
         
     all_trades = []
     
-    # CRITICAL FIX: Loop through each stock independently to prevent data mixing!
     for symbol, sym_df in df.groupby('symbol'):
         sym_df = sym_df.sort_values('datetime').reset_index(drop=True)
         sym_df = calculate_indicators(sym_df)
@@ -56,8 +55,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
             or_df = day_df.iloc[:7]
             or_high = or_df['high'].max()
             or_low = or_df['low'].min()
-            or_width = or_high - or_low
-
+            
             consecutive_losses = 0
             active_position = None
             last_index = day_df.index[-1]
@@ -137,7 +135,8 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
                         if pd.isna(atr) or pd.isna(adx) or pd.isna(ema20) or pd.isna(vwap):
                             continue
 
-                        regime_pass = (adx >= 18.0) and (0.3 * atr <= or_width <= 3.0 * atr)
+                        # Modified to bypass the mathematically flawed OR-width filter
+                        regime_pass = (adx >= 18.0)
 
                         if regime_pass:
                             sl_dist = 1.3 * atr
@@ -185,7 +184,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     if trades_df.empty:
         return trades_df, pd.DataFrame()
         
-    # Generate Global Portfolio Equity Curve
     trades_df = trades_df.sort_values('exit_time').reset_index(drop=True)
     trades_df['equity'] = initial_capital + trades_df['pnl'].cumsum()
     
@@ -194,3 +192,4 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     equity_df = pd.concat([start_row, equity_df], ignore_index=True)
 
     return trades_df, equity_df
+            
