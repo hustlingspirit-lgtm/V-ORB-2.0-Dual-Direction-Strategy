@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import zipfile
-import io
 from engine import run_backtest
 
 st.set_page_config(page_title="V-ORB 2.0 Backtester", page_icon="⚡", layout="wide")
@@ -22,17 +21,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ V-ORB Strategy: Advanced X-Ray Dashboard")
+st.title("⚡ V-ORB 2.0 by claude: Advanced X-Ray Dashboard")
 
 uploaded_file = st.file_uploader(
-    "Upload Historical Data (Single .csv OR .zip containing CSVs)", 
+    "Upload Historical Data (Single .csv OR .zip containing CSVs)",
     type=["zip", "csv"]
 )
+
+REQUIRED_COLUMNS = {'open', 'high', 'low', 'close'}
+
 
 @st.cache_data
 def process_uploaded_data(uploaded):
     dfs = []
-    
+
     if uploaded.name.endswith('.zip'):
         with zipfile.ZipFile(uploaded) as z:
             for filename in z.namelist():
@@ -49,52 +51,57 @@ def process_uploaded_data(uploaded):
         if 'symbol' not in df.columns:
             df['symbol'] = uploaded.name.replace('.csv', '')
         dfs.append(df)
-        
+
     if dfs:
         df_combined = pd.concat(dfs, ignore_index=True)
-        
         df_combined.rename(columns={
-            'date': 'datetime', 
-            'time': 'datetime', 
+            'date': 'datetime',
+            'time': 'datetime',
             'timestamp': 'datetime',
             'date/time': 'datetime'
         }, inplace=True)
-        
         return df_combined
     return pd.DataFrame()
+
 
 if uploaded_file is None:
     st.info("Please upload a .csv or .zip file to view results.")
 else:
     df_raw = process_uploaded_data(uploaded_file)
-    
+
     if df_raw.empty:
         st.error("No valid CSV data found in the uploaded file.")
     elif 'datetime' not in df_raw.columns:
-         st.error("The uploaded CSV must contain a time column (e.g., 'datetime', 'date', 'timestamp').")
+        st.error("The uploaded CSV must contain a time column (e.g., 'datetime', 'date', 'timestamp').")
+    elif not REQUIRED_COLUMNS.issubset(set(df_raw.columns)):
+        missing = REQUIRED_COLUMNS - set(df_raw.columns)
+        st.error(f"The uploaded CSV is missing required OHLC column(s): {', '.join(sorted(missing))}. "
+                  f"Found columns: {', '.join(df_raw.columns)}")
     else:
         st.success("Data successfully loaded. Running backtest...")
 
-        st.warning("Data Diagnostic Viewer Active:")
-        st.write(f"Total Rows in Dataset: {len(df_raw)}")
-        st.write("First 5 Rows of Data:")
-        st.dataframe(df_raw.head())
-        
-        df_raw['debug_date'] = pd.to_datetime(df_raw['datetime']).dt.date
-        rows_per_day = df_raw.groupby('debug_date').size()
-        st.write("Candles per day (Must be > 15 for the engine to trade):")
-        st.dataframe(rows_per_day.head(10))
-        
+        with st.expander("Data Diagnostic Viewer (click to expand)"):
+            st.write(f"Total Rows in Dataset: {len(df_raw)}")
+            st.write("First 5 Rows of Data:")
+            st.dataframe(df_raw.head())
+
+            debug_date = pd.to_datetime(df_raw['datetime']).dt.date
+            rows_per_day = df_raw.groupby(debug_date).size()
+            st.write("Candles per day (must be > 15 for the engine to trade):")
+            st.dataframe(rows_per_day.head(10))
+
         trades_df, equity_df = run_backtest(df_raw)
 
         if trades_df.empty:
-            st.error("No trades generated with the current dataset filters. Ensure your CSV has intraday granularity.")
+            st.error("No trades generated with the current dataset filters. "
+                     "Ensure your CSV has intraday granularity (5-minute candles) "
+                     "and covers enough days (each trading day needs at least 15 candles).")
         else:
             net_profit = trades_df['pnl'].sum()
             total_trades = len(trades_df)
             winning_trades = trades_df[trades_df['pnl'] > 0]
             losing_trades = trades_df[trades_df['pnl'] <= 0]
-            
+
             win_rate = (len(winning_trades) / total_trades) * 100 if total_trades > 0 else 0
             gross_profit = winning_trades['pnl'].sum()
             gross_loss = abs(losing_trades['pnl'].sum())
@@ -119,7 +126,7 @@ else:
 
             st.subheader("Core Performance")
             col1, col2, col3, col4 = st.columns(4)
-            
+
             with col1:
                 st.markdown(f'<div class="metric-card"><div class="metric-title">Net Profit (₹)</div><div class="metric-value">₹{net_profit:,.2f}</div></div>', unsafe_allow_html=True)
                 st.markdown(f'<div class="metric-card"><div class="metric-title">Expectancy (₹)</div><div class="metric-value">₹{expectancy:,.2f}</div></div>', unsafe_allow_html=True)
@@ -159,7 +166,7 @@ else:
                 st.subheader("Profitability by Entry Time")
                 time_pnl = trades_df.groupby('entry_hour')['pnl'].sum().reset_index()
                 fig_time = px.bar(time_pnl, x='entry_hour', y='pnl', color='pnl',
-                                  color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
+                                   color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
                 fig_time.update_layout(template="plotly_dark", height=350, showlegend=False)
                 st.plotly_chart(fig_time, use_container_width=True)
 
@@ -168,7 +175,7 @@ else:
                 day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
                 day_pnl = trades_df.groupby('day_of_week')['pnl'].sum().reindex(day_order).dropna().reset_index()
                 fig_day = px.bar(day_pnl, x='day_of_week', y='pnl', color='pnl',
-                                 color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
+                                  color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
                 fig_day.update_layout(template="plotly_dark", height=350, showlegend=False)
                 st.plotly_chart(fig_day, use_container_width=True)
-            
+    
