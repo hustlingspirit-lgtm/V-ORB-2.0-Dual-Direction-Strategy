@@ -101,6 +101,8 @@ else:
                      "and covers enough days (each trading day needs at least 15 candles).")
         else:
             net_profit = trades_df['pnl'].sum()
+            gross_profit_total = trades_df['gross_pnl'].sum()
+            total_costs = trades_df['cost'].sum()
             total_trades = len(trades_df)
             winning_trades = trades_df[trades_df['pnl'] > 0]
             losing_trades = trades_df[trades_df['pnl'] <= 0]
@@ -128,6 +130,15 @@ else:
                     max_loss_streak = max(max_loss_streak, cur_loss)
 
             st.subheader("Core Performance")
+
+            st.markdown(
+                f'<div class="metric-card"><div class="metric-title">Gross PnL before costs (₹)</div>'
+                f'<div class="metric-value">₹{gross_profit_total:,.2f}</div></div>'
+                f'<div class="metric-card"><div class="metric-title">Total costs paid (₹)</div>'
+                f'<div class="metric-value">₹{total_costs:,.2f}</div></div>',
+                unsafe_allow_html=True
+            )
+
             col1, col2, col3, col4 = st.columns(4)
 
             with col1:
