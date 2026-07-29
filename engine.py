@@ -7,15 +7,12 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['date'] = df['datetime'].dt.date
     df['volume'] = df.get('volume', 0.0)
 
-    # 1. Volume SMA
     df['vol_sma_20'] = df['volume'].rolling(window=20, min_periods=1).mean()
 
-    # 2. ATR (14)
     prev_close = df['close'].shift(1)
     tr = np.maximum(df['high'] - df['low'], np.maximum((df['high'] - prev_close).abs(), (df['low'] - prev_close).abs()))
     df['atr_14'] = tr.rolling(window=14, min_periods=1).mean()
 
-    # 3. ADX (14)
     up_move = df['high'] - df['high'].shift(1)
     down_move = df['low'].shift(1) - df['low']
     pos_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
@@ -26,7 +23,6 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     dx = 100 * (pos_di - neg_di).abs() / (pos_di + neg_di + 1e-8)
     df['adx_14'] = dx.rolling(14, min_periods=1).mean()
 
-    # 4. VWAP
     tp = (df['high'] + df['low'] + df['close']) / 3.0
     df['tp_vol'] = tp * (df['volume'] + 1e-8)
     df['cum_tp_vol'] = df.groupby('date')['tp_vol'].cumsum()
@@ -34,7 +30,6 @@ def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['vwap'] = df['cum_tp_vol'] / df['cum_vol']
     df.drop(columns=['tp_vol', 'cum_tp_vol', 'cum_vol'], inplace=True)
 
-    # 5. Shifted Daily 20 EMA
     daily_closes = df.groupby('date')['close'].last()
     daily_20_ema = daily_closes.ewm(span=20, adjust=False, min_periods=1).mean().shift(1)
     df['daily_20_ema'] = df['date'].map(daily_20_ema).ffill().bfill()
@@ -50,11 +45,9 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     for trade_date, day_df in df.groupby('date'):
         day_df = day_df.sort_values('datetime').reset_index(drop=True)
         
-        # Require enough data to form OR and trade
         if len(day_df) < 15:
             continue
 
-        # Dynamic OR: First 7 candles (35 mins) completely ignores timezone errors
         or_df = day_df.iloc[:7]
         or_high = or_df['high'].max()
         or_low = or_df['low'].min()
@@ -65,7 +58,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
         last_index = day_df.index[-1]
         has_volume = day_df['volume'].max() > 0
 
-        # Iterate from candle 8 onward
         for row in day_df.iloc[7:].itertuples():
             candle_idx = row.Index
             equity_curve.append({'datetime': row.datetime, 'equity': equity})
@@ -73,7 +65,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
             if active_position is not None:
                 pos = active_position
                 
-                # Square off at index 72 (approx 3:15 PM) or the end of available data
                 if candle_idx >= 72 or candle_idx == last_index:
                     exit_price = row.close
                     pnl = (exit_price - pos['entry_price']) * pos['remaining_qty'] if pos['type'] == 'LONG' else (pos['entry_price'] - exit_price) * pos['remaining_qty']
@@ -138,9 +129,7 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
                         active_position = None
                         continue
 
-            # New Entry Search
             if active_position is None and consecutive_losses < 2:
-                # Entry Window: Candle index 9 (approx 10:00 AM) to 57 (approx 2:00 PM)
                 if 9 <= candle_idx <= 57:
                     atr = row.atr_14
                     adx = row.adx_14
@@ -161,7 +150,6 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
                         risk_amt = equity * risk_per_trade_pct
                         position_size = max(1, int(risk_amt / sl_dist))
                         
-                        # Dynamically evaluates volume: Applies filter if stock has volume, ignores if index (0 volume)
                         vol_condition = (row.volume > 1.5 * vol_sma) if has_volume else True
 
                         if (row.close > or_high) and (row.close > vwap) and vol_condition and (row.close > ema20):
@@ -196,4 +184,4 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
                             }
 
     return pd.DataFrame(trades), pd.DataFrame(equity_curve)
-                        
+    
