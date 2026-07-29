@@ -305,4 +305,3 @@ def run_backtest(df: pd.DataFrame, initial_capital=1_000_000.0, risk_per_trade_p
     equity_df = pd.concat([start_row, equity_df], ignore_index=True)
 
     return final_trades_df, equity_df
-            
