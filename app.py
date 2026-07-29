@@ -21,7 +21,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ V-ORB 2.0 by claude: Advanced X-Ray Dashboard")
+st.title("⚡ V-ORB 2.0: Advanced X-Ray Dashboard")
 
 uploaded_file = st.file_uploader(
     "Upload Historical Data (Single .csv OR .zip containing CSVs)",
@@ -178,4 +178,3 @@ else:
                                   color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
                 fig_day.update_layout(template="plotly_dark", height=350, showlegend=False)
                 st.plotly_chart(fig_day, use_container_width=True)
-    
