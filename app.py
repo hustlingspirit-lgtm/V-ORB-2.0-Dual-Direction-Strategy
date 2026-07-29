@@ -24,7 +24,6 @@ st.markdown("""
 
 st.title("⚡ V-ORB Strategy: Advanced X-Ray Dashboard")
 
-# Unified File Uploader for ZIP or CSV
 uploaded_file = st.file_uploader(
     "Upload Historical Data (Single .csv OR .zip containing CSVs)", 
     type=["zip", "csv"]
@@ -32,18 +31,15 @@ uploaded_file = st.file_uploader(
 
 @st.cache_data
 def process_uploaded_data(uploaded):
-    """Handles both single CSV uploads and ZIP archives containing CSVs."""
     dfs = []
     
-    # Check if the uploaded file is a ZIP archive
     if uploaded.name.endswith('.zip'):
         with zipfile.ZipFile(uploaded) as z:
             for filename in z.namelist():
-                if filename.endswith('.csv'):
+                if filename.endswith('.csv') and not filename.startswith('__MACOSX/'):
                     with z.open(filename) as f:
                         df = pd.read_csv(f)
                         dfs.append(df)
-    # Check if the uploaded file is a direct CSV
     elif uploaded.name.endswith('.csv'):
         df = pd.read_csv(uploaded)
         dfs.append(df)
@@ -51,7 +47,6 @@ def process_uploaded_data(uploaded):
     if dfs:
         df_combined = pd.concat(dfs, ignore_index=True)
         
-        # Standardize columns to prevent KeyErrors
         df_combined.columns = df_combined.columns.str.strip().str.lower()
         df_combined.rename(columns={
             'date': 'datetime', 
@@ -66,7 +61,6 @@ def process_uploaded_data(uploaded):
 if uploaded_file is None:
     st.info("Please upload a .csv or .zip file to view results.")
 else:
-    # Process the data
     df_raw = process_uploaded_data(uploaded_file)
     
     if df_raw.empty:
@@ -76,13 +70,11 @@ else:
     else:
         st.success("Data successfully loaded. Running backtest...")
         
-        # Run Engine
         trades_df, equity_df = run_backtest(df_raw)
 
         if trades_df.empty:
-            st.warning("No trades generated with the current dataset filters.")
+            st.warning("No trades generated with the current dataset filters. Ensure your CSV has intraday granularity.")
         else:
-            # Calculations
             net_profit = trades_df['pnl'].sum()
             total_trades = len(trades_df)
             winning_trades = trades_df[trades_df['pnl'] > 0]
@@ -94,12 +86,10 @@ else:
             profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.nan
             expectancy = net_profit / total_trades if total_trades > 0 else 0
 
-            # Drawdown
             equity_df['peak'] = equity_df['equity'].cummax()
             equity_df['drawdown_pct'] = ((equity_df['equity'] - equity_df['peak']) / equity_df['peak']) * 100
             max_drawdown = equity_df['drawdown_pct'].min()
 
-            # Streaks
             pnl_series = (trades_df['pnl'] > 0).astype(int).tolist()
             max_win_streak = max_loss_streak = cur_win = cur_loss = 0
             for val in pnl_series:
@@ -112,7 +102,6 @@ else:
                     cur_win = 0
                     max_loss_streak = max(max_loss_streak, cur_loss)
 
-            # UI Metrics Display
             st.subheader("Core Performance")
             col1, col2, col3, col4 = st.columns(4)
             
@@ -134,21 +123,18 @@ else:
 
             st.markdown("---")
 
-            # Dynamic Equity Curve Plot
             st.subheader("Dynamic Equity Curve")
             fig_eq = px.line(equity_df, x='datetime', y='equity', title="Capital Growth Over Time")
             fig_eq.update_traces(line_color="#00e676", line_width=2)
             fig_eq.update_layout(template="plotly_dark", height=400, xaxis_title="Date", yaxis_title="Equity")
             st.plotly_chart(fig_eq, use_container_width=True)
 
-            # Underwater Drawdown Chart
             st.subheader("Underwater Chart (Drawdown Depth)")
             fig_dd = px.area(equity_df, x='datetime', y='drawdown_pct', title="Drawdown (%)")
             fig_dd.update_traces(fillcolor="rgba(255, 82, 82, 0.3)", line_color="#ff5252")
             fig_dd.update_layout(template="plotly_dark", height=300, xaxis_title="Date", yaxis_title="Drawdown (%)")
             st.plotly_chart(fig_dd, use_container_width=True)
 
-            # Advanced Breakdowns
             col_left, col_right = st.columns(2)
 
             trades_df['entry_hour'] = pd.to_datetime(trades_df['entry_time']).dt.strftime('%H:%M')
@@ -170,3 +156,4 @@ else:
                                  color_continuous_scale=['#ff5252', '#ffeb3b', '#00e676'])
                 fig_day.update_layout(template="plotly_dark", height=350, showlegend=False)
                 st.plotly_chart(fig_day, use_container_width=True)
+                
